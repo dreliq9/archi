@@ -1,0 +1,56 @@
+# archi/rules/profiles/irc_2021.yaml
+jurisdiction: IRC-2021
+type: residential
+
+rules:
+  room_minimums:
+    habitable_room:
+      min_area_sqft: 70
+      min_dimension_ft: 7
+    kitchen:
+      min_area_sqft: 50
+    bathroom:
+      min_dimension_ft: 5
+    bedroom:
+      min_area_sqft: 70
+      min_dimension_ft: 7
+
+  ceiling_height:
+    habitable_room:
+      min_ft: 7.0
+    bathroom:
+      min_ft: 6.67
+    hallway:
+      min_ft: 7.0
+
+  ventilation:
+    habitable_room:
+      operable_to_floor_ratio: 0.04
+    bathroom:
+      mechanical_required: true
+    kitchen:
+      mechanical_required: true
+
+  stairs:
+    min_width_in: 36
+    max_riser_height_in: 7.75
+    min_tread_depth_in: 10
+    max_nosing_in: 1.25
+    headroom_min_ft: 6.67
+
+  doors:
+    entry_min_width_in: 36
+    interior_min_width_in: 32
+    bathroom_min_width_in: 28
+
+  setbacks:
+    fire_separation_min_ft: 3
+
+  windows:
+    habitable_room:
+      glazing_to_floor_ratio: 0.08
+    bedroom:
+      egress_min_width_in: 20
+      egress_min_height_in: 24
+      egress_min_area_sqft: 5.7
+      egress_max_sill_height_in: 44

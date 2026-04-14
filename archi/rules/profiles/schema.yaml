@@ -1,0 +1,51 @@
+# archi/rules/profiles/schema.yaml
+# Schema documentation for Archi rule profiles.
+# Each profile is a YAML file with the following top-level keys.
+#
+# jurisdiction: string — code identifier (e.g. "IRC-2021")
+# type: string — "residential" or "commercial"
+#
+# rules:
+#   room_minimums:
+#     <room_category>:
+#       min_area_sqft: float
+#       min_dimension_ft: float
+#
+#   ceiling_height:
+#     <room_category>:
+#       min_ft: float
+#
+#   windows:
+#     <room_category>:
+#       glazing_to_floor_ratio: float
+#       egress_min_width_in: float
+#       egress_min_height_in: float
+#       egress_min_area_sqft: float
+#       egress_max_sill_height_in: float
+#
+#   ventilation:
+#     <room_category>:
+#       operable_to_floor_ratio: float
+#       mechanical_required: bool
+#
+#   stairs:
+#     min_width_in: float
+#     max_riser_height_in: float
+#     min_tread_depth_in: float
+#     max_nosing_in: float
+#     headroom_min_ft: float
+#
+#   doors:
+#     entry_min_width_in: float
+#     interior_min_width_in: float
+#     bathroom_min_width_in: float
+#
+#   setbacks:
+#     fire_separation_min_ft: float
+#
+# Room categories map to RoomType groups:
+#   habitable_room: all rooms except hallway, closet, garage, utility, pantry
+#   bedroom: bedroom only
+#   kitchen: kitchen only
+#   bathroom: bathroom, half_bath
+#   hallway: hallway only
