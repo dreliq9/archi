@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "cadquery-ocp>=7.7",
     "pyyaml>=6.0",
+    "ortools>=9.9",
 ]
 
 [project.optional-dependencies]
