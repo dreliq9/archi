@@ -74,11 +74,17 @@ class BuildingState:
 mcp = FastMCP("archi", instructions="AI-native architectural and interior design server")
 state = BuildingState()
 
+# Import tool modules to register @mcp.tool() decorators
+import archi.tools.arch  # noqa: E402, F401
+import archi.tools.interior  # noqa: E402, F401
+import archi.tools.query  # noqa: E402, F401
+import archi.tools.export  # noqa: E402, F401
+
 
 def main():
     """Entry point for the archi MCP server."""
-    import archi.tools.arch
-    import archi.tools.interior
-    import archi.tools.query
-    import archi.tools.export
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
