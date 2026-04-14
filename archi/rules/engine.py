@@ -13,8 +13,8 @@ _PROFILES_DIR = Path(__file__).parent / "profiles"
 
 _HABITABLE_TYPES = {
     RoomType.KITCHEN, RoomType.LIVING_ROOM, RoomType.DINING_ROOM,
-    RoomType.BEDROOM, RoomType.BATHROOM, RoomType.HALF_BATH,
-    RoomType.OFFICE, RoomType.LAUNDRY, RoomType.MUDROOM, RoomType.FOYER,
+    RoomType.BEDROOM, RoomType.OFFICE, RoomType.LAUNDRY,
+    RoomType.MUDROOM, RoomType.FOYER,
 }
 
 _CATEGORY_MAP: dict[str, set[RoomType]] = {
