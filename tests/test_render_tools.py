@@ -3,7 +3,7 @@
 import os
 from unittest.mock import patch
 
-from archi.graph.model import NodeType, RoomType
+from archi.graph.model import NodeType, RoomType, OpeningType
 from archi.server import BuildingState
 
 
@@ -124,3 +124,35 @@ def test_render_showcase_uses_saved_styles():
         result = render_showcase_impl(s, level=0)
     assert result["success"]
     assert result["renders"][0]["style"] == "industrial"
+
+
+def test_render_walkthrough_follows_adjacency():
+    from archi.tools.render import render_walkthrough_impl
+    s, floor_id, room_ids = _make_state_with_floor()
+    kitchen, living, bedroom = room_ids
+    s.graph.add_edge(kitchen, living, "adjacent_to")
+    s.graph.add_edge(living, bedroom, "adjacent_to")
+    door = s.graph.add_node(
+        NodeType.OPENING, opening_type=OpeningType.DOOR,
+        width=36, height=80, exterior=True,
+    )
+    s.graph.add_edge(door, kitchen, "connects")
+
+    with patch("archi.render.urlretrieve") as mock_retrieve:
+        mock_retrieve.return_value = ("/tmp/test.png", {})
+        result = render_walkthrough_impl(s, level=0)
+    assert result["success"]
+    assert len(result["walk_order"]) == 3
+    assert result["walk_order"][0] == kitchen
+    assert len(result["renders"]) == 3
+
+
+def test_render_walkthrough_fallback_no_adjacency():
+    """Without adjacency edges, should still render all rooms."""
+    from archi.tools.render import render_walkthrough_impl
+    s, floor_id, room_ids = _make_state_with_floor()
+    with patch("archi.render.urlretrieve") as mock_retrieve:
+        mock_retrieve.return_value = ("/tmp/test.png", {})
+        result = render_walkthrough_impl(s, level=0)
+    assert result["success"]
+    assert len(result["renders"]) == 3

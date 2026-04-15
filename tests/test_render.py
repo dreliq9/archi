@@ -130,6 +130,14 @@ def test_generate_image_high_requires_fal_key():
     assert "FAL_KEY" in result.error
 
 
+def test_compose_prompt_with_entering_from():
+    """Walkthrough prompts should include spatial transition context."""
+    from archi.render import compose_prompt
+    g, room_id = _make_graph_with_room()
+    prompt = compose_prompt(g, room_id, style="modern", entering_from="living room")
+    assert "entering from the living room" in prompt.lower()
+
+
 def test_generate_image_fast_calls_fal():
     """Fast tier should call _generate_fal with correct args."""
     from archi.render import generate_image
