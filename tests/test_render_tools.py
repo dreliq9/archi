@@ -1,7 +1,7 @@
 # tests/test_render_tools.py
 """Integration tests for render MCP tools."""
 import os
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from archi.graph.model import NodeType, RoomType, OpeningType
 from archi.server import BuildingState
@@ -23,11 +23,19 @@ def _make_state_with_room():
     return s, room_id
 
 
+def _mock_urlopen():
+    """Mock urlopen to return fake image bytes."""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = b"\x89PNG fake image data"
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    return patch("archi.render.urlopen", return_value=mock_resp)
+
+
 def test_render_room_basic():
     from archi.tools.render import render_room_impl
     s, room_id = _make_state_with_room()
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         result = render_room_impl(s, room_id)
     assert result["success"]
     assert result["image_path"]
@@ -56,8 +64,7 @@ def test_render_set_style():
 def test_render_explore_default_styles():
     from archi.tools.render import render_explore_impl
     s, room_id = _make_state_with_room()
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         result = render_explore_impl(s, room_id)
     assert result["success"]
     assert len(result["renders"]) == 4
@@ -69,8 +76,7 @@ def test_render_explore_default_styles():
 def test_render_explore_custom_styles():
     from archi.tools.render import render_explore_impl
     s, room_id = _make_state_with_room()
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         result = render_explore_impl(s, room_id, styles=["industrial", "bohemian"])
     assert result["success"]
     assert len(result["renders"]) == 2
@@ -107,8 +113,7 @@ def _make_state_with_floor():
 def test_render_showcase_renders_all_rooms():
     from archi.tools.render import render_showcase_impl
     s, floor_id, room_ids = _make_state_with_floor()
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         result = render_showcase_impl(s, level=0)
     assert result["success"]
     assert result["room_count"] == 3
@@ -119,8 +124,7 @@ def test_render_showcase_uses_saved_styles():
     from archi.tools.render import render_showcase_impl, set_style_impl
     s, floor_id, room_ids = _make_state_with_floor()
     set_style_impl(s, room_ids[0], "industrial")
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         result = render_showcase_impl(s, level=0)
     assert result["success"]
     assert result["renders"][0]["style"] == "industrial"
@@ -138,8 +142,7 @@ def test_render_walkthrough_follows_adjacency():
     )
     s.graph.add_edge(door, kitchen, "connects")
 
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         result = render_walkthrough_impl(s, level=0)
     assert result["success"]
     assert len(result["walk_order"]) == 3
@@ -151,8 +154,7 @@ def test_render_walkthrough_fallback_no_adjacency():
     """Without adjacency edges, should still render all rooms."""
     from archi.tools.render import render_walkthrough_impl
     s, floor_id, room_ids = _make_state_with_floor()
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         result = render_walkthrough_impl(s, level=0)
     assert result["success"]
     assert len(result["renders"]) == 3

@@ -76,12 +76,20 @@ def test_compose_prompt_empty_room():
     assert "10" in prompt and "15" in prompt
 
 
+def _mock_urlopen():
+    """Mock urlopen to return fake image bytes."""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = b"\x89PNG fake image data"
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    return patch("archi.render.urlopen", return_value=mock_resp)
+
+
 def test_generate_image_free_builds_correct_url():
     """Free tier should call Pollinations with URL-encoded prompt."""
     from archi.render import generate_image
 
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen() as mock_open:
         result = generate_image(
             prompt="A modern kitchen",
             quality="free",
@@ -89,17 +97,17 @@ def test_generate_image_free_builds_correct_url():
         )
     assert result.success
     assert result.image_path == "/tmp/test.png"
-    call_url = mock_retrieve.call_args[0][0]
-    assert "pollinations.ai" in call_url
-    assert "modern%20kitchen" in call_url or "modern+kitchen" in call_url
+    call_args = mock_open.call_args[0][0]
+    url = call_args.full_url if hasattr(call_args, "full_url") else str(call_args)
+    assert "pollinations.ai" in url
+    assert "modern%20kitchen" in url or "modern+kitchen" in url
 
 
 def test_generate_image_free_no_api_key_needed():
     """Free tier must not check for FAL_KEY."""
     from archi.render import generate_image
 
-    with patch("archi.render.urlretrieve") as mock_retrieve:
-        mock_retrieve.return_value = ("/tmp/test.png", {})
+    with _mock_urlopen():
         with patch.dict(os.environ, {}, clear=True):
             result = generate_image(
                 prompt="A bedroom",

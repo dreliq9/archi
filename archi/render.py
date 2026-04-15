@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
-from urllib.request import urlretrieve
+from urllib.request import Request, urlopen, urlretrieve
 
 from archi.graph.model import BuildingGraph, NodeType, OpeningType
 
@@ -128,7 +128,10 @@ def _generate_pollinations(prompt: str, output_path: str) -> RenderResult:
     encoded = quote(prompt)
     url = f"{_POLLINATIONS_BASE}/{encoded}?width=1024&height=768&nologo=true"
     try:
-        urlretrieve(url, output_path)
+        req = Request(url, headers={"User-Agent": "archi/0.1"})
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with urlopen(req) as resp, open(output_path, "wb") as f:
+            f.write(resp.read())
         return RenderResult(
             success=True,
             image_path=output_path,
