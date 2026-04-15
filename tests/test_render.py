@@ -3,6 +3,7 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 from archi.graph.model import BuildingGraph, NodeType, RoomType, FurnitureType, OpeningType
+from archi.render import RenderResult
 
 
 def _make_graph_with_room():
@@ -106,3 +107,43 @@ def test_generate_image_free_no_api_key_needed():
                 output_path="/tmp/test.png",
             )
     assert result.success
+
+
+def test_generate_image_fast_requires_fal_key():
+    """Fast tier should fail with clear error when FAL_KEY is missing."""
+    from archi.render import generate_image
+
+    with patch.dict(os.environ, {}, clear=True):
+        result = generate_image(prompt="A kitchen", quality="fast")
+    assert not result.success
+    assert "FAL_KEY" in result.error
+    assert "fal.ai/dashboard/keys" in result.error
+
+
+def test_generate_image_high_requires_fal_key():
+    """High tier should fail with clear error when FAL_KEY is missing."""
+    from archi.render import generate_image
+
+    with patch.dict(os.environ, {}, clear=True):
+        result = generate_image(prompt="A kitchen", quality="high")
+    assert not result.success
+    assert "FAL_KEY" in result.error
+
+
+def test_generate_image_fast_calls_fal():
+    """Fast tier should call _generate_fal with correct args."""
+    from archi.render import generate_image
+
+    with patch.dict(os.environ, {"FAL_KEY": "test-key-123"}):
+        with patch("archi.render._generate_fal") as mock_fal:
+            mock_fal.return_value = RenderResult(
+                success=True, image_path="/tmp/test.png",
+                image_url="https://fal.ai/result.png",
+                prompt_used="A kitchen", quality="fast",
+            )
+            result = generate_image(
+                prompt="A kitchen", quality="fast",
+                output_path="/tmp/test.png",
+            )
+    assert result.success
+    mock_fal.assert_called_once_with("A kitchen", "fast", "/tmp/test.png")

@@ -25,6 +25,9 @@ dev = [
 ifc = [
     "ifcopenshell>=0.7",
 ]
+render = [
+    "fal-client>=0.4",
+]
 
 [project.scripts]
 archi = "archi.server:main"

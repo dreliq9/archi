@@ -141,9 +141,71 @@ def _generate_pollinations(prompt: str, output_path: str) -> RenderResult:
         return RenderResult(success=False, error=str(e), prompt_used=prompt)
 
 
+# ---------------------------------------------------------------------------
+# fal.ai (paid tiers)
+# ---------------------------------------------------------------------------
+
+_FAL_ENDPOINTS = {
+    "fast": "fal-ai/flux/dev",
+    "high": "fal-ai/flux-pro/v1.1",
+}
+
+_FAL_COST_PER_IMAGE = {
+    "fast": 0.01,
+    "high": 0.05,
+}
+
+
 def _generate_fal(prompt: str, quality: str, output_path: str) -> RenderResult:
-    """Generate an image via fal.ai Flux models. Implemented in Task 3."""
-    raise NotImplementedError("fal.ai backend not yet implemented")
+    """Generate an image via fal.ai Flux models."""
+    try:
+        import fal_client
+    except ImportError:
+        return RenderResult(
+            success=False,
+            error=(
+                "fal-client not installed. "
+                "Install with: pip install fal-client"
+            ),
+            prompt_used=prompt,
+            quality=quality,
+        )
+
+    endpoint = _FAL_ENDPOINTS[quality]
+    cost = _FAL_COST_PER_IMAGE[quality]
+
+    def _progress(update):
+        if hasattr(update, "logs"):
+            for log in update.logs:
+                print(f"    {log['message']}", file=sys.stderr)
+
+    try:
+        result = fal_client.subscribe(
+            endpoint,
+            arguments={
+                "prompt": prompt,
+                "image_size": {"width": 1024, "height": 768},
+            },
+            with_logs=True,
+            on_queue_update=_progress,
+        )
+        image_url = result["images"][0]["url"]
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        urlretrieve(image_url, output_path)
+
+        return RenderResult(
+            success=True,
+            image_path=output_path,
+            image_url=image_url,
+            prompt_used=prompt,
+            estimated_cost=cost,
+            quality=quality,
+        )
+    except Exception as e:
+        return RenderResult(
+            success=False, error=str(e),
+            prompt_used=prompt, quality=quality,
+        )
 
 
 # ---------------------------------------------------------------------------
