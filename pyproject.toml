@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "archi"
 version = "0.1.0"
 description = "AI-native architectural and interior design MCP server"
+license = "MIT"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "cadquery-ocp>=7.7",

@@ -6,3 +6,31 @@ dist/
 build/
 .pytest_cache/
 *.egg-link
+
+# Renders (generated output, can be large)
+renders/
+
+# Environment / secrets
+.env
+.env.*
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Export artifacts
+*.dxf
+*.glb
+*.ifc
+
+# Docs build (specs/plans stay tracked)
+docs/superpowers/plans/
+docs/superpowers/specs/
