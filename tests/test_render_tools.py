@@ -51,3 +51,26 @@ def test_render_set_style():
     assert result["style"] == "farmhouse"
     props = s.graph.get_node(room_id)
     assert props.get("render_style") == "farmhouse"
+
+
+def test_render_explore_default_styles():
+    from archi.tools.render import render_explore_impl
+    s, room_id = _make_state_with_room()
+    with patch("archi.render.urlretrieve") as mock_retrieve:
+        mock_retrieve.return_value = ("/tmp/test.png", {})
+        result = render_explore_impl(s, room_id)
+    assert result["success"]
+    assert len(result["renders"]) == 4
+    styles_returned = [r["style"] for r in result["renders"]]
+    assert "modern" in styles_returned
+    assert "farmhouse" in styles_returned
+
+
+def test_render_explore_custom_styles():
+    from archi.tools.render import render_explore_impl
+    s, room_id = _make_state_with_room()
+    with patch("archi.render.urlretrieve") as mock_retrieve:
+        mock_retrieve.return_value = ("/tmp/test.png", {})
+        result = render_explore_impl(s, room_id, styles=["industrial", "bohemian"])
+    assert result["success"]
+    assert len(result["renders"]) == 2
