@@ -99,3 +99,97 @@ def compose_prompt(
 
     parts.append("Photorealistic interior design photography, natural lighting.")
     return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Result type
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RenderResult:
+    success: bool
+    image_path: str | None = None
+    image_url: str | None = None
+    prompt_used: str = ""
+    estimated_cost: float = 0.0
+    quality: str = "free"
+    error: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Pollinations.ai (free tier)
+# ---------------------------------------------------------------------------
+
+_POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
+
+
+def _generate_pollinations(prompt: str, output_path: str) -> RenderResult:
+    """Generate an image via Pollinations.ai — free, no key needed."""
+    encoded = quote(prompt)
+    url = f"{_POLLINATIONS_BASE}/{encoded}?width=1024&height=768&nologo=true"
+    try:
+        urlretrieve(url, output_path)
+        return RenderResult(
+            success=True,
+            image_path=output_path,
+            image_url=url,
+            prompt_used=prompt,
+            estimated_cost=0.0,
+            quality="free",
+        )
+    except Exception as e:
+        return RenderResult(success=False, error=str(e), prompt_used=prompt)
+
+
+def _generate_fal(prompt: str, quality: str, output_path: str) -> RenderResult:
+    """Generate an image via fal.ai Flux models. Implemented in Task 3."""
+    raise NotImplementedError("fal.ai backend not yet implemented")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def _ensure_render_dir() -> Path:
+    RENDER_DIR.mkdir(parents=True, exist_ok=True)
+    return RENDER_DIR
+
+
+def _make_filename(room_type: str, style: str, suffix: str = ".png") -> str:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{room_type}_{style}_{ts}{suffix}"
+
+
+def generate_image(
+    prompt: str,
+    quality: str = "free",
+    output_path: str | None = None,
+) -> RenderResult:
+    """Generate an image using the specified quality tier.
+
+    - "free": Pollinations.ai (no API key)
+    - "fast": fal.ai Flux dev (requires FAL_KEY)
+    - "high": fal.ai Flux Pro (requires FAL_KEY)
+    """
+    if output_path is None:
+        _ensure_render_dir()
+        output_path = str(RENDER_DIR / _make_filename("render", "image"))
+
+    if quality == "free":
+        return _generate_pollinations(prompt, output_path)
+
+    # Paid tiers — check for API key
+    fal_key = os.environ.get("FAL_KEY")
+    if not fal_key:
+        return RenderResult(
+            success=False,
+            error=(
+                "FAL_KEY environment variable not set. "
+                "The free tier requires no key — use quality='free'. "
+                "For fast/high quality, get your key at https://fal.ai/dashboard/keys"
+            ),
+            prompt_used=prompt,
+            quality=quality,
+        )
+
+    return _generate_fal(prompt, quality, output_path)
