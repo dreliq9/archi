@@ -79,6 +79,7 @@ import archi.tools.arch  # noqa: E402, F401
 import archi.tools.interior  # noqa: E402, F401
 import archi.tools.query  # noqa: E402, F401
 import archi.tools.export  # noqa: E402, F401
+import archi.tools.render  # noqa: E402, F401
 
 
 def main():
