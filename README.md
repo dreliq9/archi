@@ -302,6 +302,15 @@ archi/
 
 ---
 
+## Design strategy
+
+The broader product and architecture rationale is documented in:
+
+- [`docs/TOPOLOGY.md`](docs/TOPOLOGY.md) — canonical room→wall/opening topology and geometry-safety invariants.
+- [`docs/COMPETITIVE_LANDSCAPE.md`](docs/COMPETITIVE_LANDSCAPE.md) — review of commercial and open-source architecture/interior-design software, competitive whitespace, and roadmap implications for BIM, residential automation, generative design, interior semantics, ingestion, documentation, and visualization.
+
+---
+
 ## Output Files
 
 By default, renders and exports save into the current working
