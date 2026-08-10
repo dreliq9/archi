@@ -13,6 +13,7 @@ from typing import Annotated, Optional
 from pydantic import Field
 
 from archi.graph.model import NodeType, OpeningType, RoomType
+from archi.graph.topology import bind_opening_to_wall
 from archi.server import BuildingState, mcp, state
 from archi.types import (
     BuildingCreated,
@@ -152,6 +153,17 @@ def _add_room(
     )
 
 
+def _openings_connected_to_room(s: BuildingState, room_id: str) -> list[str]:
+    opening_ids: list[str] = []
+    for opening_id in s.graph.get_all_nodes(NodeType.OPENING):
+        if any(
+            edge.get("edge_type") == "connects" and edge.get("target") == room_id
+            for edge in s.graph.get_edges(opening_id)
+        ):
+            opening_ids.append(opening_id)
+    return opening_ids
+
+
 def _remove_room(s: BuildingState, room_id: str) -> RoomRemoved:
     try:
         props = s.graph.get_node(room_id)
@@ -162,6 +174,8 @@ def _remove_room(s: BuildingState, room_id: str) -> RoomRemoved:
     level = props.get("level", 0)
 
     with s.graph.transaction() as tx:
+        for opening_id in _openings_connected_to_room(s, room_id):
+            s.graph.remove_node(opening_id)
         s.graph.remove_node(room_id)
         s.run_layout(level=level)
         tx.commit()
@@ -186,6 +200,7 @@ def _add_opening(
     room_a: str,
     room_b: Optional[str],
     exterior: bool,
+    sill_height: Optional[float] = None,
 ) -> OpeningAdded:
     try:
         ot = OpeningType(opening_type)
@@ -203,6 +218,13 @@ def _add_opening(
             return OpeningAdded(success=False, error="An opening cannot connect a room to itself")
         if room_b_props.get("level") != room_a_props.get("level"):
             return OpeningAdded(success=False, error="Opening rooms must be on the same level")
+        if exterior:
+            return OpeningAdded(success=False, error="An opening between two rooms cannot be marked exterior")
+    elif not exterior:
+        return OpeningAdded(success=False, error="An opening with no second room must be marked exterior")
+
+    if sill_height is None:
+        sill_height = 36.0 if ot == OpeningType.WINDOW else 0.0
 
     with s.graph.transaction() as tx:
         opening_id = s.graph.add_node(
@@ -210,12 +232,16 @@ def _add_opening(
             opening_type=ot,
             width=width,
             height=height,
+            sill_height=sill_height,
             exterior=exterior,
             dimension_unit="in",
         )
         s.graph.add_edge(opening_id, room_a, "connects")
         if room_b:
             s.graph.add_edge(opening_id, room_b, "connects")
+        bound, bind_error = bind_opening_to_wall(s.graph, opening_id)
+        if not bound:
+            return OpeningAdded(success=False, error=bind_error or "Opening could not be bound to a wall")
         tx.commit()
 
     level = room_a_props.get("level", 0)
@@ -276,7 +302,7 @@ def arch_add_room(
 def arch_remove_room(
     room_id: Annotated[str, Field(description="ID of the room to remove")],
 ) -> RoomRemoved:
-    """Remove a room and its connections atomically."""
+    """Remove a room, connected openings, and derived topology atomically."""
     return _remove_room(state, room_id)
 
 
@@ -288,9 +314,10 @@ def arch_add_opening(
     room_a: Annotated[str, Field(description="Room ID on one side of the opening")],
     room_b: Annotated[Optional[str], Field(default=None, description="Room ID on the other side, or omit for exterior")] = None,
     exterior: Annotated[bool, Field(description="True if this opening leads outside")] = False,
+    sill_height: Annotated[Optional[float], Field(default=None, ge=0, description="Opening sill height in inches; windows default to 36, doors to 0")] = None,
 ) -> OpeningAdded:
-    """Add a door/window/archway between rooms or to the exterior."""
-    return _add_opening(state, opening_type, width, height, room_a, room_b, exterior)
+    """Add an opening and bind it to a canonical shared/exterior wall."""
+    return _add_opening(state, opening_type, width, height, room_a, room_b, exterior, sill_height)
 
 
 # In-process service helpers retained for tests and non-MCP callers.
@@ -316,5 +343,6 @@ def remove_room(s: BuildingState, room_id: str) -> dict:
 
 
 def add_opening(s: BuildingState, opening_type: str, width: float, height: float,
-                room_a: str, room_b: Optional[str] = None, exterior: bool = False) -> dict:
-    return _add_opening(s, opening_type, width, height, room_a, room_b, exterior).model_dump()
+                room_a: str, room_b: Optional[str] = None, exterior: bool = False,
+                sill_height: Optional[float] = None) -> dict:
+    return _add_opening(s, opening_type, width, height, room_a, room_b, exterior, sill_height).model_dump()
