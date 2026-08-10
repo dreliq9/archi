@@ -12,8 +12,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from OCP.BRepTools import BRepTools
 from OCP.BRep import BRep_Builder
+from OCP.BRepTools import BRepTools
 from OCP.TopoDS import TopoDS_Shape
 
 from archi.kernel.backend import shape_volume
@@ -27,7 +27,7 @@ import json
 from OCP.BRepTools import BRepTools
 from OCP.BRep import BRep_Builder
 from OCP.TopoDS import TopoDS_Shape
-from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse, BRepAlgoAPI_Common
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 
@@ -59,6 +59,8 @@ def main():
         algo = BRepAlgoAPI_Cut(base, tool)
     elif op == "union":
         algo = BRepAlgoAPI_Fuse(base, tool)
+    elif op == "common":
+        algo = BRepAlgoAPI_Common(base, tool)
     else:
         print(json.dumps({"ok": False, "reason": f"Unknown operation: {op}"}))
         sys.exit(1)
@@ -145,7 +147,6 @@ def _run_isolated(base_shape: TopoDS_Shape, tool_shape: TopoDS_Shape, operation:
 
         result_shape = _load_brep(result_path)
         vol = output.get("volume", shape_volume(result_shape))
-
         return BuildResult(shape=result_shape, valid=True, volume=vol)
 
 
@@ -159,3 +160,10 @@ def safe_boolean_union(a: TopoDS_Shape | None, b: TopoDS_Shape | None) -> BuildR
     if a is None or b is None:
         return BuildResult.fail("Cannot run boolean on None shape")
     return _run_isolated(a, b, "union")
+
+
+def safe_boolean_common(a: TopoDS_Shape | None, b: TopoDS_Shape | None) -> BuildResult:
+    """Return the geometric intersection while containing OCCT crashes."""
+    if a is None or b is None:
+        return BuildResult.fail("Cannot run boolean on None shape")
+    return _run_isolated(a, b, "common")
