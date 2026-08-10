@@ -53,3 +53,7 @@ Furniture interference uses the same isolation strategy through `safe_boolean_co
 - Furniture front direction/orientation is not modeled yet, so clearance is conservative perimeter screening, not full ergonomic compliance.
 - Wall type/assembly semantics remain minimal; structural/header checking is screening only.
 - The canonical topology is rectangular/axis-aligned because the current room solver produces rectangular rooms.
+
+## Related strategy
+
+See [`COMPETITIVE_LANDSCAPE.md`](COMPETITIVE_LANDSCAPE.md) for the broader architecture/interior-design software review and the roadmap implications for BIM compilation, residential automation, generative design, interior semantics, and visualization.
