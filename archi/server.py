@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import math
+
 from mcp.server.fastmcp import FastMCP
 
 from archi.export.svg import render_floor_plan
@@ -21,16 +23,40 @@ class BuildingState:
         self._layout_cache: dict[int, dict[str, dict]] = {}
         self._layout_meta: dict[int, dict[str, object]] = {}
 
+    @staticmethod
+    def _compact_footprint(
+        target_area: float,
+        buildable_width: float,
+        buildable_depth: float,
+    ) -> tuple[float, float] | None:
+        """Fit a compact rectangle of ``target_area`` inside the buildable lot."""
+        if target_area <= 0:
+            return 0.0, 0.0
+        buildable_area = buildable_width * buildable_depth
+        if target_area > buildable_area + 1e-6:
+            return None
+
+        aspect = buildable_width / buildable_depth
+        width = math.sqrt(target_area * aspect)
+        depth = target_area / width
+        if width > buildable_width:
+            width = buildable_width
+            depth = target_area / width
+        if depth > buildable_depth:
+            depth = buildable_depth
+            width = target_area / depth
+        if width > buildable_width + 1e-6 or depth > buildable_depth + 1e-6:
+            return None
+        return width, depth
+
     def run_layout(self, level: int = 0) -> dict[str, dict]:
-        """Run treemap seeding followed by CP-SAT constraint refinement.
+        """Run packed treemap seeding followed by CP-SAT refinement.
 
-        The treemap gives the solver a fast full-footprint seed. CP-SAT then
-        refines room dimensions/positions against requested target areas and
-        graph adjacency constraints. If the constrained solve is infeasible,
-        the deterministic treemap seed remains the fallback layout.
-
-        Once positions are solved, room boundaries are compiled into canonical
-        shared wall segments and existing openings are rebound to those walls.
+        The building footprint is derived from the requested room area rather
+        than the entire buildable lot. This keeps rooms spatially coherent and
+        prevents CP-SAT from scattering a small house across a large parcel.
+        CP-SAT refines the packed seed against target areas and requested graph
+        adjacencies; canonical walls are then compiled from the solved rooms.
         """
         floor_nodes = self.graph.get_all_nodes(NodeType.FLOOR)
         floor_id = None
@@ -46,7 +72,7 @@ class BuildingState:
         room_id_set = set(room_ids)
         for rid in room_ids:
             props = self.graph.get_node(rid)
-            target_area = props.get("target_area", props.get("area", 100.0))
+            target_area = float(props.get("target_area", props.get("area", 100.0)))
             room = {
                 "id": rid,
                 "target_area": target_area,
@@ -60,18 +86,36 @@ class BuildingState:
             rooms.append(room)
 
         building_nodes = self.graph.get_all_nodes(NodeType.BUILDING)
-        lot_width = 50.0
-        lot_depth = 40.0
+        buildable_width = 50.0
+        buildable_depth = 40.0
         for _bid, bprops in building_nodes.items():
-            lot_width = bprops.get("lot_width", 50.0)
-            lot_depth = bprops.get("lot_depth", 40.0)
+            buildable_width = float(bprops.get("lot_width", 50.0))
+            buildable_depth = float(bprops.get("lot_depth", 40.0))
             setbacks = bprops.get("setbacks", {})
-            lot_width -= setbacks.get("left", 0) + setbacks.get("right", 0)
-            lot_depth -= setbacks.get("front", 0) + setbacks.get("back", 0)
+            buildable_width -= setbacks.get("left", 0) + setbacks.get("right", 0)
+            buildable_depth -= setbacks.get("front", 0) + setbacks.get("back", 0)
             break
 
-        if lot_width <= 0 or lot_depth <= 0:
+        if buildable_width <= 0 or buildable_depth <= 0:
             return {}
+
+        if not rooms:
+            sync_wall_topology(self.graph, level=level)
+            self._layout_cache[level] = {}
+            self._layout_meta[level] = {
+                "solver": "empty",
+                "canonical_walls": 0,
+                "footprint_width_ft": 0.0,
+                "footprint_depth_ft": 0.0,
+                "footprint_area_sqft": 0.0,
+            }
+            return {}
+
+        target_total = sum(float(room["target_area"]) for room in rooms)
+        footprint = self._compact_footprint(target_total, buildable_width, buildable_depth)
+        if footprint is None:
+            return {}
+        footprint_width, footprint_depth = footprint
 
         adjacencies: list[tuple[str, str]] = []
         seen: set[tuple[str, str]] = set()
@@ -86,13 +130,13 @@ class BuildingState:
                     adjacencies.append(pair)
 
         seed = TreemapSolver.solve(
-            footprint_width=lot_width,
-            footprint_depth=lot_depth,
+            footprint_width=footprint_width,
+            footprint_depth=footprint_depth,
             rooms=rooms,
         )
         refined = CSPSolver.solve(
-            footprint_width=lot_width,
-            footprint_depth=lot_depth,
+            footprint_width=footprint_width,
+            footprint_depth=footprint_depth,
             rooms=rooms,
             adjacencies=adjacencies,
             seed=seed,
@@ -115,6 +159,11 @@ class BuildingState:
         self._layout_meta[level] = {
             "solver": solver_name,
             "canonical_walls": len(wall_ids),
+            "footprint_width_ft": footprint_width,
+            "footprint_depth_ft": footprint_depth,
+            "footprint_area_sqft": footprint_width * footprint_depth,
+            "buildable_width_ft": buildable_width,
+            "buildable_depth_ft": buildable_depth,
         }
         return layout
 
