@@ -224,7 +224,6 @@ class CSPSolver:
             model.add(oxe2 - oxs2 >= min_shared).only_enforce_if(adj_b)
             model.add_bool_or([adj_l, adj_r, adj_t, adj_b])
 
-        # Primary objective: preserve requested room areas.
         area_deviations = []
         for room in rooms:
             rid = room["id"]
@@ -240,9 +239,6 @@ class CSPSolver:
         )
         model.add(total_area_dev == sum(area_deviations))
 
-        # Secondary objective: stay close to the packed treemap seed so
-        # unconstrained rooms do not drift across the footprint and create
-        # artificial exterior gaps.
         seed_deviations = []
         if seed:
             for room in rooms:
@@ -265,10 +261,11 @@ class CSPSolver:
 
         seed_bound = max(1, (max_w + max_d) * 2 * len(rooms))
         total_seed_dev = model.new_int_var(0, seed_bound, "total_seed_dev")
-        model.add(total_seed_dev == sum(seed_deviations) if seed_deviations else 0)
+        if seed_deviations:
+            model.add(total_seed_dev == sum(seed_deviations))
+        else:
+            model.add(total_seed_dev == 0)
 
-        # Tertiary objective: honor explicit preferred dimensions where they
-        # can coexist with area/adjacency constraints.
         pref_deviations = []
         for room in rooms:
             rid = room["id"]
@@ -287,7 +284,10 @@ class CSPSolver:
 
         pref_bound = max(1, (max_w + max_d) * len(rooms))
         total_pref_dev = model.new_int_var(0, pref_bound, "total_pref_dev")
-        model.add(total_pref_dev == sum(pref_deviations) if pref_deviations else 0)
+        if pref_deviations:
+            model.add(total_pref_dev == sum(pref_deviations))
+        else:
+            model.add(total_pref_dev == 0)
 
         area_weight = seed_bound + pref_bound + 1
         model.minimize(
