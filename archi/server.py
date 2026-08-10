@@ -5,10 +5,11 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
+from archi.export.svg import render_floor_plan
 from archi.graph.model import BuildingGraph, NodeType
 from archi.graph.solver import CSPSolver, TreemapSolver
+from archi.graph.topology import sync_wall_topology
 from archi.graph.validator import LiveValidator
-from archi.export.svg import render_floor_plan
 
 
 class BuildingState:
@@ -18,7 +19,7 @@ class BuildingState:
         self.graph = BuildingGraph()
         self.validator = LiveValidator(self.graph, jurisdiction=jurisdiction)
         self._layout_cache: dict[int, dict[str, dict]] = {}
-        self._layout_meta: dict[int, dict[str, str]] = {}
+        self._layout_meta: dict[int, dict[str, object]] = {}
 
     def run_layout(self, level: int = 0) -> dict[str, dict]:
         """Run treemap seeding followed by CP-SAT constraint refinement.
@@ -27,6 +28,9 @@ class BuildingState:
         refines room dimensions/positions against requested target areas and
         graph adjacency constraints. If the constrained solve is infeasible,
         the deterministic treemap seed remains the fallback layout.
+
+        Once positions are solved, room boundaries are compiled into canonical
+        shared wall segments and existing openings are rebound to those walls.
         """
         floor_nodes = self.graph.get_all_nodes(NodeType.FLOOR)
         floor_id = None
@@ -106,8 +110,12 @@ class BuildingState:
                 area=pos["width"] * pos["depth"],
             )
 
+        wall_ids = sync_wall_topology(self.graph, level=level)
         self._layout_cache[level] = layout
-        self._layout_meta[level] = {"solver": solver_name}
+        self._layout_meta[level] = {
+            "solver": solver_name,
+            "canonical_walls": len(wall_ids),
+        }
         return layout
 
     def respond(self, result: dict, level: int = 0) -> dict:
