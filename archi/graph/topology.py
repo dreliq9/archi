@@ -168,7 +168,20 @@ def bind_opening_to_wall(graph: BuildingGraph, opening_id: str) -> tuple[bool, s
 
 
 def sync_wall_topology(graph: BuildingGraph, level: int = 0) -> dict[str, str]:
-    """Replace derived walls for a level and rebind existing openings."""
+    """Replace derived walls for a level and rebind existing openings.
+
+    User-adjustable wall attributes are preserved when a canonical wall key
+    survives a relayout. Geometry and ownership fields are always re-derived.
+    """
+    old_walls = {
+        props.get("wall_key"): {
+            "thickness_in": props.get("thickness_in", 5.5),
+            "structural": props.get("structural", False),
+            "material": props.get("material", "wood_frame"),
+        }
+        for props in graph.get_all_nodes(NodeType.WALL).values()
+        if props.get("derived") and props.get("level") == level and props.get("wall_key")
+    }
     old_wall_ids = [
         wall_id for wall_id, props in graph.get_all_nodes(NodeType.WALL).items()
         if props.get("derived") and props.get("level") == level
@@ -180,6 +193,7 @@ def sync_wall_topology(graph: BuildingGraph, level: int = 0) -> dict[str, str]:
     for segment in derive_wall_segments(graph, level):
         sx, sy = segment.start_xy
         ex, ey = segment.end_xy
+        retained = old_walls.get(segment.key, {})
         wall_id = graph.add_node(
             NodeType.WALL,
             derived=True,
@@ -193,16 +207,16 @@ def sync_wall_topology(graph: BuildingGraph, level: int = 0) -> dict[str, str]:
             length_ft=segment.length_ft,
             room_ids=list(segment.room_ids),
             exterior=segment.exterior,
-            thickness_in=5.5,
-            structural=False,
-            material="wood_frame",
+            thickness_in=retained.get("thickness_in", 5.5),
+            structural=retained.get("structural", False),
+            material=retained.get("material", "wood_frame"),
             length_unit="ft",
         )
         for room_id in segment.room_ids:
             graph.add_edge(wall_id, room_id, "bounds")
         wall_ids[segment.key] = wall_id
 
-    for opening_id, props in graph.get_all_nodes(NodeType.OPENING).items():
+    for opening_id in graph.get_all_nodes(NodeType.OPENING):
         connected = _opening_room_ids(graph, opening_id)
         if not connected:
             continue
