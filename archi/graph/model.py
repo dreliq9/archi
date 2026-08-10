@@ -7,6 +7,7 @@ connection are edges. The graph is the single source of truth.
 from __future__ import annotations
 
 import uuid
+from copy import deepcopy
 from enum import Enum
 from typing import Any, Callable
 
@@ -86,11 +87,42 @@ class FurnitureType(str, Enum):
 _BIDIRECTIONAL_EDGES = {"adjacent_to"}
 
 
+class GraphTransaction:
+    """Snapshot-backed mutation transaction.
+
+    Mutations are rolled back unless ``commit()`` is called. This also handles
+    early returns from domain handlers without leaving partial graph state.
+    """
+
+    def __init__(self, graph: "BuildingGraph"):
+        self._graph = graph
+        self._nodes = deepcopy(graph._nodes)
+        self._edges = deepcopy(graph._edges)
+        self._committed = False
+
+    def __enter__(self) -> "GraphTransaction":
+        return self
+
+    def commit(self) -> None:
+        self._committed = True
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is not None or not self._committed:
+            self._graph._nodes = self._nodes
+            self._graph._edges = self._edges
+            self._graph._emit({"action": "rollback"})
+        return False
+
+
 class BuildingGraph:
     def __init__(self, on_mutate: Callable[[dict], None] | None = None):
         self._nodes: dict[str, dict[str, Any]] = {}
         self._edges: dict[str, list[dict[str, Any]]] = {}
         self._on_mutate = on_mutate
+
+    def transaction(self) -> GraphTransaction:
+        """Start an atomic graph mutation transaction."""
+        return GraphTransaction(self)
 
     def _emit(self, event: dict) -> None:
         if self._on_mutate is not None:
@@ -175,26 +207,26 @@ class BuildingGraph:
         return {"nodes": nodes, "edges": edges}
 
     @classmethod
-    def from_dict(cls, data: dict) -> BuildingGraph:
-        _TYPE_MAP = {t.value: t for t in NodeType}
-        _ROOM_TYPE_MAP = {t.value: t for t in RoomType}
-        _OPENING_TYPE_MAP = {t.value: t for t in OpeningType}
-        _FIXTURE_TYPE_MAP = {t.value: t for t in FixtureType}
-        _FURNITURE_TYPE_MAP = {t.value: t for t in FurnitureType}
+    def from_dict(cls, data: dict) -> "BuildingGraph":
+        type_map = {t.value: t for t in NodeType}
+        room_type_map = {t.value: t for t in RoomType}
+        opening_type_map = {t.value: t for t in OpeningType}
+        fixture_type_map = {t.value: t for t in FixtureType}
+        furniture_type_map = {t.value: t for t in FurnitureType}
         g = cls()
         for nid, props in data["nodes"].items():
             restored = {}
             for k, v in props.items():
                 if k == "type":
-                    restored[k] = _TYPE_MAP[v]
+                    restored[k] = type_map[v]
                 elif k == "room_type":
-                    restored[k] = _ROOM_TYPE_MAP[v]
+                    restored[k] = room_type_map[v]
                 elif k == "opening_type":
-                    restored[k] = _OPENING_TYPE_MAP[v]
+                    restored[k] = opening_type_map[v]
                 elif k == "fixture_type":
-                    restored[k] = _FIXTURE_TYPE_MAP[v]
+                    restored[k] = fixture_type_map[v]
                 elif k == "furniture_type":
-                    restored[k] = _FURNITURE_TYPE_MAP[v]
+                    restored[k] = furniture_type_map[v]
                 else:
                     restored[k] = v
             g._nodes[nid] = restored

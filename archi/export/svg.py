@@ -1,32 +1,69 @@
 """SVG floor plan renderer — primary visual format for AI-in-the-loop preview."""
 
 from __future__ import annotations
+
 import svgwrite
-from archi.graph.model import BuildingGraph, NodeType, RoomType, FurnitureType
+
+from archi.graph.model import BuildingGraph, NodeType, RoomType
+from archi.graph.topology import derive_wall_segments
+from archi.units import inches_to_feet
 
 SCALE = 20  # 1 foot = 20 SVG pixels
 MARGIN = 20
 
 _ROOM_COLORS: dict[RoomType, str] = {
-    RoomType.KITCHEN:     "#FFE4B5",
+    RoomType.KITCHEN: "#FFE4B5",
     RoomType.LIVING_ROOM: "#E0F0E0",
     RoomType.DINING_ROOM: "#FFEFD5",
-    RoomType.BEDROOM:     "#E0E8F0",
-    RoomType.BATHROOM:    "#E0F0F8",
-    RoomType.HALF_BATH:   "#E0F0F8",
-    RoomType.CLOSET:      "#F0E0F0",
-    RoomType.HALLWAY:     "#F0F0F0",
-    RoomType.GARAGE:      "#E8E8E0",
-    RoomType.LAUNDRY:     "#F0E8E0",
-    RoomType.OFFICE:      "#E8F0E0",
-    RoomType.MUDROOM:     "#E8E0D0",
-    RoomType.PANTRY:      "#F8F0E0",
-    RoomType.FOYER:       "#F0F0E0",
-    RoomType.UTILITY:     "#E0E0E0",
+    RoomType.BEDROOM: "#E0E8F0",
+    RoomType.BATHROOM: "#E0F0F8",
+    RoomType.HALF_BATH: "#E0F0F8",
+    RoomType.CLOSET: "#F0E0F0",
+    RoomType.HALLWAY: "#F0F0F0",
+    RoomType.GARAGE: "#E8E8E0",
+    RoomType.LAUNDRY: "#F0E8E0",
+    RoomType.OFFICE: "#E8F0E0",
+    RoomType.MUDROOM: "#E8E0D0",
+    RoomType.PANTRY: "#F8F0E0",
+    RoomType.FOYER: "#F0F0E0",
+    RoomType.UTILITY: "#E0E0E0",
 }
 _DEFAULT_ROOM_COLOR = "#F5F5F5"
 _FURNITURE_COLOR = "#C0A080"
 _WALL_COLOR = "#333333"
+_OPENING_COLOR = "#FFFFFF"
+
+
+def _wall_records(graph: BuildingGraph, level: int) -> list[dict]:
+    records = [
+        props for props in graph.get_all_nodes(NodeType.WALL).values()
+        if props.get("level") == level and props.get("derived")
+    ]
+    if records:
+        return records
+    return [
+        {
+            "wall_key": seg.key,
+            "orientation": seg.orientation,
+            "start_x": seg.start_xy[0],
+            "start_y": seg.start_xy[1],
+            "end_x": seg.end_xy[0],
+            "end_y": seg.end_xy[1],
+            "length_ft": seg.length_ft,
+        }
+        for seg in derive_wall_segments(graph, level)
+    ]
+
+
+def _opening_records(graph: BuildingGraph, wall_key: str) -> list[dict]:
+    return sorted(
+        [
+            props for props in graph.get_all_nodes(NodeType.OPENING).values()
+            if props.get("wall_key") == wall_key and props.get("topology_status") == "bound"
+        ],
+        key=lambda p: float(p.get("wall_offset_ft", 0.0)),
+    )
+
 
 def render_floor_plan(graph: BuildingGraph, level: int = 0, title: str = "") -> str:
     rooms: list[tuple[str, dict]] = []
@@ -59,7 +96,7 @@ def render_floor_plan(graph: BuildingGraph, level: int = 0, title: str = "") -> 
             continue
         room_type = props.get("room_type")
         fill = _ROOM_COLORS.get(room_type, _DEFAULT_ROOM_COLOR) if room_type else _DEFAULT_ROOM_COLOR
-        dwg.add(dwg.rect(insert=(rx, ry), size=(rw, rd), fill=fill, stroke=_WALL_COLOR, stroke_width=2))
+        dwg.add(dwg.rect(insert=(rx, ry), size=(rw, rd), fill=fill, stroke="none"))
         label = room_type.value.replace("_", " ").title() if room_type else "Room"
         area = props.get("area", 0.0)
         cx, cy = rx + rw / 2, ry + rd / 2
@@ -72,8 +109,33 @@ def render_floor_plan(graph: BuildingGraph, level: int = 0, title: str = "") -> 
             fw, fd = fp.get("width", 0.0), fp.get("depth", 0.0)
             if fw <= 0 or fd <= 0:
                 continue
-            dwg.add(dwg.rect(insert=(rx + fx/12.0*SCALE, ry + fy/12.0*SCALE),
-                             size=(fw/12.0*SCALE, fd/12.0*SCALE),
-                             fill=_FURNITURE_COLOR, fill_opacity=0.5, stroke="#8B7355", stroke_width=1))
+            dwg.add(dwg.rect(
+                insert=(rx + fx / 12.0 * SCALE, ry + fy / 12.0 * SCALE),
+                size=(fw / 12.0 * SCALE, fd / 12.0 * SCALE),
+                fill=_FURNITURE_COLOR,
+                fill_opacity=0.5,
+                stroke="#8B7355",
+                stroke_width=1,
+            ))
+
+    for wall in _wall_records(graph, level):
+        sx = float(wall["start_x"]) * SCALE + MARGIN
+        sy = float(wall["start_y"]) * SCALE + MARGIN
+        ex = float(wall["end_x"]) * SCALE + MARGIN
+        ey = float(wall["end_y"]) * SCALE + MARGIN
+        dwg.add(dwg.line(start=(sx, sy), end=(ex, ey), stroke=_WALL_COLOR, stroke_width=3))
+
+        orientation = wall["orientation"]
+        for opening in _opening_records(graph, wall.get("wall_key", "")):
+            offset = float(opening.get("wall_offset_ft", 0.0)) * SCALE
+            width = inches_to_feet(float(opening.get("width", 0.0))) * SCALE
+            if orientation == "h":
+                p1 = (sx + offset, sy)
+                p2 = (sx + offset + width, sy)
+            else:
+                p1 = (sx, sy + offset)
+                p2 = (sx, sy + offset + width)
+            dwg.add(dwg.line(start=p1, end=p2, stroke=_OPENING_COLOR, stroke_width=5))
+            dwg.add(dwg.line(start=p1, end=p2, stroke="#777", stroke_width=1))
 
     return dwg.tostring()
