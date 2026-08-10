@@ -1,19 +1,15 @@
-"""Layout solvers — treemap seed and CSP refinement.
+"""Layout solvers — treemap seed and CP-SAT refinement.
 
-TreemapSolver: fast rectangular subdivision (~10ms).
-CSPSolver: OR-Tools CP-SAT refinement for adjacency constraints (~50-200ms).
+TreemapSolver produces a compact rectangular partition. CSPSolver preserves
+that packed topology as a soft objective while enforcing area, aspect-ratio,
+non-overlap, and requested adjacency constraints.
 """
 
 from __future__ import annotations
 
 
 class TreemapSolver:
-    """Squarified treemap layout. Recursively subdivides a rectangle into
-    sub-rectangles proportional to target areas.
-
-    Input:  footprint dimensions + list of rooms with target areas.
-    Output: dict mapping room ID → {x, y, width, depth}.
-    """
+    """Recursively subdivide a rectangle proportional to target room areas."""
 
     @staticmethod
     def solve(
@@ -26,21 +22,28 @@ class TreemapSolver:
 
         total_target = sum(r["target_area"] for r in rooms)
         footprint_area = footprint_width * footprint_depth
-
         sorted_rooms = sorted(rooms, key=lambda r: r["target_area"], reverse=True)
 
         result: dict[str, dict] = {}
         TreemapSolver._subdivide(
-            sorted_rooms, 0.0, 0.0, footprint_width, footprint_depth,
-            footprint_area, total_target, result,
+            sorted_rooms,
+            0.0,
+            0.0,
+            footprint_width,
+            footprint_depth,
+            footprint_area,
+            total_target,
+            result,
         )
         return result
 
     @staticmethod
     def _subdivide(
         rooms: list[dict],
-        x: float, y: float,
-        width: float, depth: float,
+        x: float,
+        y: float,
+        width: float,
+        depth: float,
         available_area: float,
         total_target: float,
         result: dict[str, dict],
@@ -49,7 +52,10 @@ class TreemapSolver:
             return
         if len(rooms) == 1:
             result[rooms[0]["id"]] = {
-                "x": x, "y": y, "width": width, "depth": depth,
+                "x": x,
+                "y": y,
+                "width": width,
+                "depth": depth,
             }
             return
 
@@ -73,22 +79,32 @@ class TreemapSolver:
         if width >= depth:
             w_a = width * fraction_a
             TreemapSolver._subdivide(
-                group_a, x, y, w_a, depth,
-                w_a * depth, area_a, result,
+                group_a, x, y, w_a, depth, w_a * depth, area_a, result,
             )
             TreemapSolver._subdivide(
-                group_b, x + w_a, y, width - w_a, depth,
-                (width - w_a) * depth, area_b, result,
+                group_b,
+                x + w_a,
+                y,
+                width - w_a,
+                depth,
+                (width - w_a) * depth,
+                area_b,
+                result,
             )
         else:
             d_a = depth * fraction_a
             TreemapSolver._subdivide(
-                group_a, x, y, width, d_a,
-                width * d_a, area_a, result,
+                group_a, x, y, width, d_a, width * d_a, area_a, result,
             )
             TreemapSolver._subdivide(
-                group_b, x, y + d_a, width, depth - d_a,
-                width * (depth - d_a), area_b, result,
+                group_b,
+                x,
+                y + d_a,
+                width,
+                depth - d_a,
+                width * (depth - d_a),
+                area_b,
+                result,
             )
 
 
@@ -111,11 +127,14 @@ class CSPSolver:
 
         model = cp_model.CpModel()
         scale = CSPSolver.GRID_SCALE
-        max_w = int(footprint_width * scale)
-        max_d = int(footprint_depth * scale)
-        min_dim = int(3 * scale)  # 3 feet minimum dimension
+        max_w = int(round(footprint_width * scale))
+        max_d = int(round(footprint_depth * scale))
+        min_dim = int(3 * scale)
+        if max_w < min_dim or max_d < min_dim:
+            return None
 
         vars_by_id: dict[str, dict] = {}
+        area_vars: dict[str, object] = {}
 
         for room in rooms:
             rid = room["id"]
@@ -123,11 +142,9 @@ class CSPSolver:
             y = model.new_int_var(0, max_d, f"{rid}_y")
             w = model.new_int_var(min_dim, max_w, f"{rid}_w")
             d = model.new_int_var(min_dim, max_d, f"{rid}_d")
-
             model.add(x + w <= max_w)
             model.add(y + d <= max_d)
 
-            # Area constraints
             area = model.new_int_var(0, max_w * max_d, f"{rid}_area")
             model.add_multiplication_equality(area, [w, d])
             min_area_grid = int(room.get("min_area", room["target_area"] * 0.8) * scale * scale)
@@ -135,7 +152,6 @@ class CSPSolver:
             model.add(area >= min_area_grid)
             model.add(area <= max_area_grid)
 
-            # Aspect ratio via cross-multiplication
             min_ratio = room.get("min_aspect_ratio", 0.33)
             max_ratio = room.get("max_aspect_ratio", 3.0)
             ratio_scale = 100
@@ -143,15 +159,15 @@ class CSPSolver:
             model.add(w * ratio_scale <= int(max_ratio * ratio_scale) * d)
 
             vars_by_id[rid] = {"x": x, "y": y, "w": w, "d": d}
+            area_vars[rid] = area
 
             if seed and rid in seed:
                 s = seed[rid]
-                model.add_hint(x, int(s["x"] * scale))
-                model.add_hint(y, int(s["y"] * scale))
-                model.add_hint(w, int(s["width"] * scale))
-                model.add_hint(d, int(s["depth"] * scale))
+                model.add_hint(x, int(round(s["x"] * scale)))
+                model.add_hint(y, int(round(s["y"] * scale)))
+                model.add_hint(w, int(round(s["width"] * scale)))
+                model.add_hint(d, int(round(s["depth"] * scale)))
 
-        # No-overlap: for each pair, at least one separation direction
         room_ids = [r["id"] for r in rooms]
         for i in range(len(room_ids)):
             for j in range(i + 1, len(room_ids)):
@@ -167,7 +183,6 @@ class CSPSolver:
                 model.add(rj["y"] + rj["d"] <= ri["y"]).only_enforce_if(b4)
                 model.add_bool_or([b1, b2, b3, b4])
 
-        # Adjacency: rooms must touch on one axis and overlap on the other by >= 3ft
         min_shared = int(3.0 * scale)
         for id_a, id_b in adjacencies:
             if id_a not in vars_by_id or id_b not in vars_by_id:
@@ -180,7 +195,6 @@ class CSPSolver:
             adj_t = model.new_bool_var(f"adj_{id_a}_{id_b}_t")
             adj_b = model.new_bool_var(f"adj_{id_a}_{id_b}_b")
 
-            # a right edge touches b left edge + overlap on y
             model.add(ra["x"] + ra["w"] == rb["x"]).only_enforce_if(adj_l)
             oys = model.new_int_var(0, max_d, f"adj_{id_a}_{id_b}_l_ys")
             oye = model.new_int_var(0, max_d, f"adj_{id_a}_{id_b}_l_ye")
@@ -188,7 +202,6 @@ class CSPSolver:
             model.add_min_equality(oye, [ra["y"] + ra["d"], rb["y"] + rb["d"]])
             model.add(oye - oys >= min_shared).only_enforce_if(adj_l)
 
-            # b right edge touches a left edge + overlap on y
             model.add(rb["x"] + rb["w"] == ra["x"]).only_enforce_if(adj_r)
             oys2 = model.new_int_var(0, max_d, f"adj_{id_a}_{id_b}_r_ys")
             oye2 = model.new_int_var(0, max_d, f"adj_{id_a}_{id_b}_r_ye")
@@ -196,7 +209,6 @@ class CSPSolver:
             model.add_min_equality(oye2, [ra["y"] + ra["d"], rb["y"] + rb["d"]])
             model.add(oye2 - oys2 >= min_shared).only_enforce_if(adj_r)
 
-            # a bottom touches b top + overlap on x
             model.add(ra["y"] + ra["d"] == rb["y"]).only_enforce_if(adj_t)
             oxs = model.new_int_var(0, max_w, f"adj_{id_a}_{id_b}_t_xs")
             oxe = model.new_int_var(0, max_w, f"adj_{id_a}_{id_b}_t_xe")
@@ -204,36 +216,88 @@ class CSPSolver:
             model.add_min_equality(oxe, [ra["x"] + ra["w"], rb["x"] + rb["w"]])
             model.add(oxe - oxs >= min_shared).only_enforce_if(adj_t)
 
-            # b bottom touches a top + overlap on x
             model.add(rb["y"] + rb["d"] == ra["y"]).only_enforce_if(adj_b)
             oxs2 = model.new_int_var(0, max_w, f"adj_{id_a}_{id_b}_b_xs")
             oxe2 = model.new_int_var(0, max_w, f"adj_{id_a}_{id_b}_b_xe")
             model.add_max_equality(oxs2, [ra["x"], rb["x"]])
             model.add_min_equality(oxe2, [ra["x"] + ra["w"], rb["x"] + rb["w"]])
             model.add(oxe2 - oxs2 >= min_shared).only_enforce_if(adj_b)
-
             model.add_bool_or([adj_l, adj_r, adj_t, adj_b])
 
-        # Objective: minimize deviation from target areas
-        deviations = []
+        # Primary objective: preserve requested room areas.
+        area_deviations = []
         for room in rooms:
             rid = room["id"]
-            target_grid = int(room["target_area"] * scale * scale)
-            area_var = model.new_int_var(0, max_w * max_d, f"{rid}_obj_area")
-            model.add_multiplication_equality(area_var, [vars_by_id[rid]["w"], vars_by_id[rid]["d"]])
-            dev = model.new_int_var(0, max_w * max_d, f"{rid}_dev")
-            diff = model.new_int_var(-max_w * max_d, max_w * max_d, f"{rid}_diff")
-            model.add(diff == area_var - target_grid)
+            target_grid = int(round(room["target_area"] * scale * scale))
+            dev = model.new_int_var(0, max_w * max_d, f"{rid}_area_dev")
+            diff = model.new_int_var(-max_w * max_d, max_w * max_d, f"{rid}_area_diff")
+            model.add(diff == area_vars[rid] - target_grid)
             model.add_abs_equality(dev, diff)
-            deviations.append(dev)
+            area_deviations.append(dev)
 
-        total_dev = model.new_int_var(0, max_w * max_d * len(rooms), "total_dev")
-        model.add(total_dev == sum(deviations))
-        model.minimize(total_dev)
+        total_area_dev = model.new_int_var(
+            0, max_w * max_d * len(rooms), "total_area_dev"
+        )
+        model.add(total_area_dev == sum(area_deviations))
+
+        # Secondary objective: stay close to the packed treemap seed so
+        # unconstrained rooms do not drift across the footprint and create
+        # artificial exterior gaps.
+        seed_deviations = []
+        if seed:
+            for room in rooms:
+                rid = room["id"]
+                if rid not in seed:
+                    continue
+                s = seed[rid]
+                for name, key, bound in (
+                    ("x", "x", max_w),
+                    ("y", "y", max_d),
+                    ("w", "width", max_w),
+                    ("d", "depth", max_d),
+                ):
+                    seed_value = int(round(s[key] * scale))
+                    diff = model.new_int_var(-bound, bound, f"{rid}_{name}_seed_diff")
+                    dev = model.new_int_var(0, bound, f"{rid}_{name}_seed_dev")
+                    model.add(diff == vars_by_id[rid][name] - seed_value)
+                    model.add_abs_equality(dev, diff)
+                    seed_deviations.append(dev)
+
+        seed_bound = max(1, (max_w + max_d) * 2 * len(rooms))
+        total_seed_dev = model.new_int_var(0, seed_bound, "total_seed_dev")
+        model.add(total_seed_dev == sum(seed_deviations) if seed_deviations else 0)
+
+        # Tertiary objective: honor explicit preferred dimensions where they
+        # can coexist with area/adjacency constraints.
+        pref_deviations = []
+        for room in rooms:
+            rid = room["id"]
+            for name, key, bound in (
+                ("w", "preferred_width", max_w),
+                ("d", "preferred_depth", max_d),
+            ):
+                if room.get(key) is None:
+                    continue
+                preferred = int(round(float(room[key]) * scale))
+                diff = model.new_int_var(-bound, bound, f"{rid}_{name}_pref_diff")
+                dev = model.new_int_var(0, bound, f"{rid}_{name}_pref_dev")
+                model.add(diff == vars_by_id[rid][name] - preferred)
+                model.add_abs_equality(dev, diff)
+                pref_deviations.append(dev)
+
+        pref_bound = max(1, (max_w + max_d) * len(rooms))
+        total_pref_dev = model.new_int_var(0, pref_bound, "total_pref_dev")
+        model.add(total_pref_dev == sum(pref_deviations) if pref_deviations else 0)
+
+        area_weight = seed_bound + pref_bound + 1
+        model.minimize(
+            total_area_dev * area_weight
+            + total_pref_dev * 4
+            + total_seed_dev
+        )
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = max_time_seconds
-
         status = solver.solve(model)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             return None
